@@ -12,11 +12,26 @@ app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.size }));
 
 const rooms = new Map();
 const themes = ['storm', 'inferno', 'void'];
+const nameRoots = ['Storm Challenger', 'Iron Comet', 'Blaze Knight', 'Midnight Rook', 'Frost Vanguard'];
+function uniqueName(room, requested) {
+  const used = new Set([room.players.white?.name, room.players.black?.name, ...[...room.spectators.values()].map(p => p.name)].filter(Boolean).map(n => n.toLowerCase()));
+  const base = String(requested || '').trim().slice(0, 22);
+  if (base && !used.has(base.toLowerCase())) return base;
+  if (base) {
+    let suffix = 2, candidate = `${base.slice(0, 18)} ${suffix}`;
+    while (used.has(candidate.toLowerCase())) candidate = `${base.slice(0, 18)} ${++suffix}`;
+    if (candidate.length <= 22) return candidate;
+  }
+  let candidate;
+  do { candidate = `${nameRoots[Math.floor(Math.random() * nameRoots.length)]} ${require('crypto').randomInt(100000, 1000000)}`; } while (used.has(candidate.toLowerCase()));
+  return candidate;
+}
+function nextTheme(theme) { return themes[(themes.indexOf(theme) + 1) % themes.length]; }
 const code = () => { let s = ''; for (let i = 0; i < 4; i++) s += 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]; return s; };
 const snapshot = (room) => ({
   code: room.code, fen: room.chess.fen(), pgn: room.chess.pgn(), turn: room.chess.turn(),
   players: { white: publicPlayer(room.players.white), black: publicPlayer(room.players.black) }, spectators: [...room.spectators.values()].map(({ id, name }) => ({ id, name })),
-  viewers: room.sockets.size, hype: room.hype, reactions: room.reactions.slice(-12),
+  viewers: room.sockets.size, duelists: Object.values(room.players).filter(Boolean).length, hype: room.hype, reactions: room.reactions.slice(-12),
   moves: room.chess.history({ verbose: true }).map(m => ({ san: m.san, from: m.from, to: m.to, color: m.color, captured: m.captured, promotion: m.promotion, flags: m.flags })),
   status: room.ended ? 'ended' : room.chess.isCheckmate() ? 'checkmate' : room.chess.isStalemate() ? 'stalemate' : room.chess.isDraw() ? 'draw' : 'playing',
   winner: room.winner || null, endType: room.endType || null,
@@ -54,11 +69,11 @@ io.on('connection', socket => {
   socket.on('create', ({ name, theme, clock } = {}, ack = () => {}) => {
     let c; do c = code(); while (rooms.has(c));
     const token = require('crypto').randomBytes(18).toString('hex');
-    const player = { id: socket.id, token, name: String(name || 'Champion').slice(0, 22), theme: themes.includes(theme) ? theme : 'storm', connected: true };
+    const player = { id: socket.id, token, name: uniqueName({ players: { white: null, black: null }, spectators: new Map() }, name), theme: themes.includes(theme) ? theme : 'storm', connected: true };
     const seconds = Number(clock) || 0;
     const room = { code: c, chess: new Chess(), players: { white: player, black: null }, spectators: new Map(), sockets: new Set(), hype: 0, reactions: [], createdAt: Date.now(), clock: seconds, clockRemaining: { white: seconds, black: seconds }, clockAt: 0, disconnectTimers: { white: null, black: null }, drawOffer: null, ended: false, winner: null, endType: null, lastLine: 'THE ARENA IS READY. WHO WILL CLAIM THE CROWN?' };
     rooms.set(c, room); socket.join(c); socket.data.room = c; socket.data.side = 'white'; room.sockets.add(socket.id);
-    ack({ ok: true, state: snapshot(room), side: 'white', token }); emitState(room);
+    ack({ ok: true, state: snapshot(room), side: 'white', token, assignedName: player.name }); emitState(room);
   });
   socket.on('join', ({ code: raw, name, theme } = {}, ack = () => {}) => {
     const c = String(raw || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); const room = rooms.get(c);
@@ -66,11 +81,13 @@ io.on('connection', socket => {
     const available = !room.players.white || !room.players.black;
     const side = available ? (!room.players.white ? 'white' : 'black') : 'spectator';
     const token = require('crypto').randomBytes(18).toString('hex');
-    const player = { id: socket.id, token, name: String(name || (side === 'spectator' ? 'Fan' : 'Champion')).slice(0, 22), theme: themes.includes(theme) ? theme : (side === 'black' ? 'inferno' : 'storm'), connected: true };
+    let assignedTheme = themes.includes(theme) ? theme : (side === 'black' ? 'inferno' : 'storm');
+    if (side === 'black' && room.players.white?.theme === assignedTheme) assignedTheme = nextTheme(assignedTheme);
+    const player = { id: socket.id, token, name: uniqueName(room, name), theme: assignedTheme, connected: true };
     if (side === 'spectator') room.spectators.set(socket.id, player); else room.players[side] = player;
     if (side === 'black' && room.clock && !room.clockAt) room.clockAt = Date.now();
     room.sockets.add(socket.id); socket.join(c); socket.data.room = c; socket.data.side = side;
-    ack({ ok: true, state: snapshot(room), side, token }); emitState(room);
+    ack({ ok: true, state: snapshot(room), side, token, assignedTheme, assignedName: player.name, themeChanged: side === 'black' && themes.includes(theme) && assignedTheme !== theme }); emitState(room);
     if (side !== 'spectator') clearDisconnectTimer(room, side);
   });
   socket.on('resume', ({ code: raw, token } = {}, ack = () => {}) => {
