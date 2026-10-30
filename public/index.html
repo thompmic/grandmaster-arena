@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#080b14"><meta name="description" content="A real-time chess showdown in the Grandmaster Arena.">
+  <title>Grandmaster Arena</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+  <div id="entrance" class="entrance">
+    <div class="entrance-backdrop"></div><div class="entry-mark">GA<span>✦</span></div>
+    <div class="entry-copy"><p class="eyebrow"><i></i> LIVE FROM THE COLOSSEUM</p><h1>GRANDMASTER<br><em>ARENA</em></h1><p class="tagline">Where legends make their move.</p></div>
+    <section class="entry-card">
+      <div class="entry-tabs"><button class="tab active" data-mode="create">CREATE ARENA</button><button class="tab" data-mode="join">JOIN WITH CODE</button></div>
+      <label class="field-label">YOUR CHAMPION NAME<input id="nameInput" maxlength="22" placeholder="Enter your name" value="Champion"></label>
+      <div class="field-label">CHOOSE YOUR CORNER<div class="theme-picks">
+        <button class="theme-pick chosen" data-theme="storm"><span class="theme-icon storm-icon">ϟ</span><b>STORM</b><small>Sovereign</small></button>
+        <button class="theme-pick" data-theme="inferno"><span class="theme-icon inferno-icon">♨</span><b>INFERNO</b><small>Warlord</small></button>
+        <button class="theme-pick" data-theme="void"><span class="theme-icon void-icon">✧</span><b>VOID</b><small>Oracle</small></button>
+      </div></div>
+      <label id="joinField" class="field-label hidden">ARENA CODE<input id="codeInput" maxlength="4" placeholder="e.g. K7QX" autocomplete="off"></label>
+      <div id="clockField" class="field-label">MATCH CLOCK<div class="clock-picks"><button class="clock-pick active" data-clock="0">NO CLOCK</button><button class="clock-pick" data-clock="300">5 MIN</button><button class="clock-pick" data-clock="600">10 MIN</button></div></div>
+      <button id="enterButton" class="primary-button">CREATE YOUR ARENA <span>↗</span></button><p id="entryError" class="error-line"></p>
+      <button id="howButton" class="how-link">HOW TO PLAY <span>ⓘ</span></button>
+    </section>
+    <div class="entry-foot"><span>NO ACCOUNT NEEDED</span><span>✦</span><span>BUILT FOR TWO. MADE FOR THE CROWD.</span></div>
+  </div>
+  <main id="game" class="game hidden">
+    <header class="topbar"><div class="brand"><span class="brand-mark">GA</span><span>GRANDMASTER <b>ARENA</b></span></div><div class="room-pill"><i class="live-dot"></i><span>ARENA</span><b id="roomCode">----</b><button id="copyCode" aria-label="Copy arena link">⧉</button></div><div class="top-actions"><span class="viewer-count">◉ <b id="viewerCount">1</b> WATCHING</span><button id="settingsButton" class="icon-button" title="Settings">⚙</button></div></header>
+    <div class="game-layout">
+      <aside class="match-panel">
+        <div class="event-label"><span class="live-dot"></span> LIVE MATCH <span id="matchClock" class="clock-readout">—:——</span></div>
+        <div id="blackCard" class="player-card black-card"><div class="avatar">♟</div><div class="player-meta"><b id="blackName">AWAITING RIVAL</b><small id="blackTheme">INFERNO WARLORD</small></div><span id="blackTurn" class="turn-marker"></span></div>
+        <div class="versus-rule"><span>VS</span><i></i></div>
+        <div id="whiteCard" class="player-card white-card active-player"><div class="avatar">♟</div><div class="player-meta"><b id="whiteName">CHAMPION</b><small id="whiteTheme">STORM SOVEREIGN</small></div><span id="whiteTurn" class="turn-marker"></span></div>
+        <div class="capture-box"><div class="section-head">FALLEN WARRIORS <span id="captureCount">0</span></div><div id="capturedPieces" class="captured-pieces"><span class="empty-captures">No captures yet</span></div></div>
+        <div class="crowd-box"><div class="section-head">CROWD HYPE <b id="hypeNumber">0%</b></div><div class="hype-track"><i id="hypeFill"></i></div><div class="crowd-buttons"><button id="cheerButton">👏 CHEER</button><button id="booButton">👎 BOO</button></div></div>
+        <div class="match-actions"><button id="resignButton">RESIGN</button><button id="drawButton">OFFER DRAW</button></div>
+      </aside>
+      <section class="stage"><div class="stage-top"><div id="turnBanner" class="turn-banner"><span class="banner-dot"></span> WHITE TO MOVE</div><div class="view-controls"><select id="seatSelect" aria-label="Choose spectator seat"><option value="director">DIRECTOR VIEW</option><option value="ringside">RINGSIDE</option><option value="behind-white">BEHIND WHITE</option><option value="behind-black">BEHIND BLACK</option><option value="stands">UPPER STANDS</option></select><button id="resetView" class="reset-view" title="Director view">◎</button></div></div>
+        <div id="arena" class="arena"><canvas id="arenaCanvas"></canvas><div class="arena-glow"></div><div id="reactionLayer" class="reaction-layer"></div><div id="cinemaTitle" class="cinema-title"></div><div class="letterbox top"></div><div class="letterbox bottom"></div><div id="crowdFlash" class="crowd-flash"></div><div class="arena-vignette"></div><div class="arena-label left-label">THE FROST COURT</div><div class="arena-label right-label">THE EMBER THRONE</div><div id="arenaLoading" class="arena-loading"><span class="spinner"></span><b>RAISING THE ARENA</b></div></div>
+        <div class="broadcast"><span class="mic-icon">◖</span><div><small>RINGSIDE COMMENTARY</small><p id="announcerLine">The arena is ready. The crowd awaits its champions.</p></div><button id="voiceButton" title="Toggle voice commentary">🔊</button></div>
+        <div class="mobile-tools"><button id="mobileCheer">👏 CHEER</button><button id="mobileBoo">👎 BOO</button><button id="mobileMoves">☰ MOVES</button></div>
+      </section>
+      <aside id="movesPanel" class="moves-panel"><div class="moves-heading"><div><span class="eyebrow">THE RECORD</span><h2>MATCH LOG</h2></div><button id="closeMoves" class="close-moves">×</button></div><div id="moveList" class="move-list"><div class="empty-moves">The opening bell is moments away.</div></div><div class="spectator-list"><div class="section-head">IN THE STANDS <span id="spectatorCount">0</span></div><div id="spectators"></div></div></aside>
+    </div>
+    <div id="spectatorRibbon" class="spectator-ribbon hidden"><span>◉ YOU'RE IN THE STANDS</span><span>MAKE SOME NOISE</span></div>
+    <div id="settingsModal" class="modal hidden"><div class="modal-card"><button class="modal-close" data-close="settingsModal">×</button><p class="eyebrow">YOUR BROADCAST</p><h2>SETTINGS</h2><label class="toggle-row"><span>Skip cinematic animations</span><input id="skipCinematics" type="checkbox"><i></i></label><label class="toggle-row"><span>Voice commentary</span><input id="voiceSetting" type="checkbox"><i></i></label><button class="primary-button" data-close="settingsModal">DONE</button></div></div>
+    <div id="howModal" class="modal hidden"><div class="modal-card"><button class="modal-close" data-close="howModal">×</button><p class="eyebrow">FIRST TIME AT THE ARENA?</p><h2>HOW TO PLAY</h2><p>Two champions take the board. Everyone else joins the stands. Tap one of your pieces, then its highlighted destination. Every move follows the official rules of chess.</p><p>Choose a seat to watch from, orbit the arena between moves, and cheer your champion on. Share the four-letter arena code to bring in the crowd.</p><button class="primary-button" data-close="howModal">LET'S GO</button></div></div>
+    <div id="resultModal" class="modal hidden"><div class="modal-card result-card"><p id="resultEyebrow" class="eyebrow">THE ARENA HAS SPOKEN</p><h2 id="resultTitle">VICTORY</h2><p id="resultDetail"></p><button id="rematchButton" class="primary-button">REMATCH <span>↗</span></button><button class="secondary-button" data-close="resultModal">BACK TO MATCH</button></div></div>
+    <div id="toast" class="toast"></div>
+  </main>
+  <script src="/socket.io/socket.io.js"></script><script type="module" src="/app.js"></script>
+</body></html>
