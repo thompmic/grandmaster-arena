@@ -31,7 +31,7 @@ const code = () => { let s = ''; for (let i = 0; i < 4; i++) s += 'ABCDEFGHJKLMN
 const snapshot = (room) => ({
   code: room.code, fen: room.chess.fen(), pgn: room.chess.pgn(), turn: room.chess.turn(),
   players: { white: publicPlayer(room.players.white), black: publicPlayer(room.players.black) }, spectators: [...room.spectators.values()].map(({ id, name }) => ({ id, name })),
-  viewers: room.sockets.size, duelists: Object.values(room.players).filter(Boolean).length, hype: room.hype, reactions: room.reactions.slice(-12),
+  viewers: room.sockets.size, duelists: Object.values(room.players).filter(p => p?.connected).length, hype: room.hype, reactions: room.reactions.slice(-12), drawOffer: room.drawOffer,
   moves: room.chess.history({ verbose: true }).map(m => ({ san: m.san, from: m.from, to: m.to, color: m.color, captured: m.captured, promotion: m.promotion, flags: m.flags })),
   status: room.ended ? 'ended' : room.chess.isCheckmate() ? 'checkmate' : room.chess.isStalemate() ? 'stalemate' : room.chess.isDraw() ? 'draw' : 'playing',
   winner: room.winner || null, endType: room.endType || null,
@@ -61,7 +61,7 @@ function describeMove(move, room) {
   if (move.captured) return `OH MY! THE ${piece.toUpperCase()} ${pick(hits)} AND TAKES DOWN THE ${names[move.captured].toUpperCase()} ON ${move.to.toUpperCase()}! ${pick(crowd)}`;
   if (move.flags.includes('k') || move.flags.includes('q')) return `THE ROYAL GUARD SWEEPS INTO FORMATION — CASTLING! ${pick(crowd)}`;
   if (move.promotion) return `ASCENSION! THE PAWN RISES AS A ${names[move.promotion].toUpperCase()}! ${pick(crowd)}`;
-  return `THE ${piece.toUpperCase()} ADVANCES TO ${move.to.toUpperCase()} ${pick(hits)}! ${pick(crowd)}`;
+  return `THE ${piece.toUpperCase()} ADVANCES TO ${move.to.toUpperCase()}. THE POSITION TAKES SHAPE.`;
 }
 function clearDisconnectTimer(room, side) { if (room.disconnectTimers?.[side]) { clearTimeout(room.disconnectTimers[side]); room.disconnectTimers[side] = null; } }
 
@@ -87,7 +87,7 @@ io.on('connection', socket => {
     if (side === 'spectator') room.spectators.set(socket.id, player); else room.players[side] = player;
     if (side === 'black' && room.clock && !room.clockAt) room.clockAt = Date.now();
     room.sockets.add(socket.id); socket.join(c); socket.data.room = c; socket.data.side = side;
-    ack({ ok: true, state: snapshot(room), side, token, assignedTheme, assignedName: player.name, themeChanged: side === 'black' && themes.includes(theme) && assignedTheme !== theme }); emitState(room);
+    ack({ ok: true, state: snapshot(room), side, token, assignedTheme, assignedName: player.name, themeChanged: side === 'black' && themes.includes(theme) && assignedTheme !== theme }); emitState(room); if(side!=='spectator')io.to(room.code).emit('playerJoined',{name:player.name,side});
     if (side !== 'spectator') clearDisconnectTimer(room, side);
   });
   socket.on('resume', ({ code: raw, token } = {}, ack = () => {}) => {
@@ -129,18 +129,21 @@ io.on('connection', socket => {
       emitState(room);
     } catch (_) { ack({ ok: false, error: 'That move is not legal.' }); }
   });
+  socket.on('legalMoves', ({ square } = {}, ack = () => {}) => { const room=rooms.get(socket.data.room), side=socket.data.side; if(!room||room.ended||!['white','black'].includes(side)||room.players[side]?.id!==socket.id||room.chess.turn()!==(side==='white'?'w':'b')) return ack({moves:[]}); ack({moves:room.chess.moves({square,verbose:true}).map(m=>m.to)}); });
   socket.on('reaction', ({ emoji, cheer } = {}) => { const room = rooms.get(socket.data.room); if (!room) return; room.hype = Math.max(0, Math.min(100, room.hype + (cheer ? 6 : -5))); room.reactions.push({ emoji: ['👏','🔥','⚡','👑','💀','🎉'].includes(emoji) ? emoji : (cheer ? '👏' : '👎'), name: room.spectators.get(socket.id)?.name || 'Fan', at: Date.now() }); room.reactions = room.reactions.slice(-24); io.to(room.code).emit('reaction', { ...room.reactions.at(-1), hype: room.hype }); emitState(room); });
-  socket.on('resign', () => { const room = rooms.get(socket.data.room); const side = socket.data.side; if (!room || room.ended || !['white','black'].includes(side) || room.players[side]?.id !== socket.id) return; const winner = side === 'white' ? 'black' : 'white'; room.ended = true; room.winner = winner; room.endType = 'forfeit'; broadcastEvent(room, { type: 'checkmate', line: `${room.players[winner]?.name || 'THE CHAMPION'} WINS BY FORFEIT! THE ARENA HAS A NEW LEGEND!`, winner, theme: room.players[winner]?.theme || 'inferno' }); room.lastLine = 'MATCH ENDED BY FORFEIT.'; io.to(room.code).emit('matchEnded', { winner, state: snapshot(room) }); });
+  socket.on('resign', () => { const room = rooms.get(socket.data.room); const side = socket.data.side; if (!room || room.ended || !['white','black'].includes(side) || room.players[side]?.id !== socket.id) return; const winner = side === 'white' ? 'black' : 'white'; room.ended = true; room.winner = winner; room.endType = 'forfeit'; room.lastLine = `${room.players[winner]?.name || 'THE CHAMPION'} WINS BY RESIGNATION!`; broadcastEvent(room, { type: 'checkmate', line: room.lastLine, winner, theme: room.players[winner]?.theme || 'inferno' }); setTimeout(()=>{if(rooms.has(room.code))io.to(room.code).emit('matchEnded', { winner, state: snapshot(room) });},3000); });
   socket.on('draw', () => { const room = rooms.get(socket.data.room); const side = socket.data.side; if (!room || room.ended || !['white','black'].includes(side) || room.players[side]?.id !== socket.id || room.drawOffer) return; room.drawOffer = side; io.to(room.code).emit('drawOffered', { name: room.players[side].name, side }); });
   socket.on('drawResponse', ({ accept } = {}) => { const room = rooms.get(socket.data.room); const side = socket.data.side; if (!room || room.ended || !room.drawOffer || !['white','black'].includes(side) || room.drawOffer === side || room.players[side]?.id !== socket.id) return; room.drawOffer = null; if (accept) { room.ended = true; room.endType = 'draw'; room.winner = null; room.lastLine = 'THE CHAMPIONS AGREE TO A DRAW. THE ARENA SALUTES BOTH WARRIORS.'; io.to(room.code).emit('matchEnded', { winner: null, state: snapshot(room) }); } else io.to(room.code).emit('drawDeclined'); });
+  socket.on('rematch', () => { const room=rooms.get(socket.data.room), side=socket.data.side; if(!room||!room.ended||!['white','black'].includes(side)||room.players[side]?.id!==socket.id)return; room.rematchVotes??=new Set(); room.rematchVotes.add(side); if(room.rematchVotes.size<2){io.to(room.code).emit('rematchWaiting',{side});return;} const oldWhite=room.players.white,oldBlack=room.players.black; room.players={white:{...oldBlack},black:{...oldWhite}}; for(const s of room.sockets){const client=io.sockets.sockets.get(s); if(client?.data.room===room.code&&['white','black'].includes(client.data.side))client.data.side=client.data.side==='white'?'black':'white';} room.chess=new Chess();room.hype=0;room.reactions=[];room.drawOffer=null;room.ended=false;room.winner=null;room.endType=null;room.rematchVotes.clear();room.clockRemaining={white:room.clock,black:room.clock};room.clockAt=room.clock&&room.players.black?.connected?Date.now():0;room.lastLine='THE REMATCH IS ON. COLORS HAVE CHANGED.';io.to(room.code).emit('rematchStarted',{state:snapshot(room)});emitState(room); });
   socket.on('seat', seat => { if (['director','ringside','behind-white','behind-black','stands','free'].includes(seat)) socket.data.seat = seat; });
   socket.on('disconnect', () => {
     const room = rooms.get(socket.data.room); if (!room) return; room.sockets.delete(socket.id);
     if (socket.data.side === 'spectator') room.spectators.delete(socket.id);
     else if (!room.ended && ['white','black'].includes(socket.data.side) && room.players[socket.data.side]?.id === socket.id) {
-      const side = socket.data.side; room.players[side].connected = false; io.to(room.code).emit('playerDisconnected', { side, seconds: 60 });
+      const side = socket.data.side; room.players[side].connected = false; if(!room.players.white?.connected&&!room.players.black){rooms.delete(room.code);return;} if(!room.players.white?.connected||!room.players.black?.connected)io.to(room.code).emit('playerDisconnected', { side, seconds: 60 });
       clearDisconnectTimer(room, side);
-      room.disconnectTimers[side] = setTimeout(() => { if (rooms.has(room.code) && room.players[side] && !room.players[side].connected) { const winner = side === 'white' ? 'black' : 'white'; room.ended = true; room.winner = winner; room.endType = 'disconnect'; room.lastLine = `${room.players[winner]?.name || 'Opponent'} WINS BY FORFEIT.`; io.to(room.code).emit('matchEnded', { winner, state: snapshot(room) }); } }, 60000);
+      if(room.players.white&&room.players.black) room.disconnectTimers[side] = setTimeout(() => { if (rooms.has(room.code) && room.players[side] && !room.players[side].connected) { const winner = side === 'white' ? 'black' : 'white'; room.ended = true; room.winner = winner; room.endType = 'disconnect'; room.lastLine = `${room.players[winner]?.name || 'Opponent'} WINS BY FORFEIT.`; io.to(room.code).emit('matchEnded', { winner, state: snapshot(room) }); } }, 60000);
+      emitState(room);
     }
     emitState(room);
   });
